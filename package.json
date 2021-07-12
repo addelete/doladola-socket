@@ -1,0 +1,29 @@
+{
+  "name": "doladola-socket",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.js",
+  "scripts": {
+    "dev": "nodemon app.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "ioredis": "^4.27.6",
+    "jsonwebtoken": "^8.5.1",
+    "koa": "^2.13.1",
+    "lodash": "^4.17.21",
+    "mockjs": "^1.1.0",
+    "mongoose": "^5.12.14",
+    "mongoose-hidden": "^1.9.1",
+    "password-hash": "^1.2.2",
+    "socket.io": "^4.1.2",
+    "uuid": "^8.3.2"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^4.27.0",
+    "@typescript-eslint/parser": "^4.27.0",
+    "eslint": "^7.29.0",
+    "nodemon": "^2.0.7"
+  }
+}
