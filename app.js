@@ -696,6 +696,7 @@ async function handleVoteRestart(socket, { vote }) {
       await redis.set(`game_room:${gameRoomId}:currentStepNum`, 1);
       await redis.unlink(`game_room:${gameRoomId}:currentStep`);
       await redis.unlink(`game_room:${gameRoomId}:losingPlayers`);
+      await redis.unlink(`game_room:${gameRoomId}:voteNextStepPlayers`);
       const underlinePlayers = Object.keys(playersOnlineMap).reduce((result, playerId) => {
         if (!playersOnlineMap[playerId]) {
           result.push(playerId);
