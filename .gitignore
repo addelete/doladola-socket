@@ -5,4 +5,4 @@
 /package-lock.json
 
 /dist/
-.eslintrc.js
+/config.custom.js
