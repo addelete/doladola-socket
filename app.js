@@ -486,7 +486,7 @@ async function handleGamingDisconnect(socket) {
  * @param {*} param1
  * @returns
  */
-async function handleSubmitMove(socket, { oldPos, movePos, stepNum }) {
+async function handleSubmitMove(socket, { oldPos, newPos, stepNum }) {
 
   // 判断移动合法性
   if(!oldPos && stepNum > 1) {
@@ -494,8 +494,8 @@ async function handleSubmitMove(socket, { oldPos, movePos, stepNum }) {
     return
   }
   if(oldPos) {
-    const dx = Math.abs(oldPos.x - movePos.x)
-    const dy = Math.abs(oldPos.y - movePos.y)
+    const dx = Math.abs(oldPos.x - newPos.x)
+    const dy = Math.abs(oldPos.y - newPos.y)
     if(!((dx === 0 && dy === 1) || (dx === 1 && dy === 0))) {
       await socket.emit('game over cause miss step', {i: 2});
       return
@@ -511,7 +511,7 @@ async function handleSubmitMove(socket, { oldPos, movePos, stepNum }) {
     return
   }
   const currentStepNum = Number(await redis.get(`game_room:${gameRoomId}:currentStepNum`));
-  if (Number(stepNum) !== currentStepNum || boardGrids[movePos.y][movePos.x]) {
+  if (Number(stepNum) !== currentStepNum || boardGrids[newPos.y][newPos.x]) {
     await socket.emit('game over cause miss step', {i: 4});
     return;
   }
@@ -525,10 +525,10 @@ async function handleSubmitMove(socket, { oldPos, movePos, stepNum }) {
   });
 
   // 判断是否和别人的步骤冲突，如果冲突，提示冲突，让玩家重走
-  const isClashed = currentStep.findIndex(step => step.x === movePos.x && step.y === movePos.y) > -1
+  const isClashed = currentStep.findIndex(step => step.x === newPos.x && step.y === newPos.y) > -1
   if (isClashed) {
     if(oldPos) {
-      boardGrids[movePos.y][movePos.x] = 1
+      boardGrids[newPos.y][newPos.x] = 1
       const isDead = check_pos_is_dead(oldPos, boardGrids) // 判断被别人先走之后，自己是否已被围死
       if(isDead) {
         await redis.sadd(`game_room:${gameRoomId}:losingPlayers`, userId);
@@ -542,10 +542,10 @@ async function handleSubmitMove(socket, { oldPos, movePos, stepNum }) {
 
   // 把当前玩家的操作插入到当前步骤中
   const time = new Date().getTime()
-  await redis.hset(`game_room:${gameRoomId}:currentStep`, userId, `${movePos.x}:${movePos.y}:${time}`);
+  await redis.hset(`game_room:${gameRoomId}:currentStep`, userId, `${newPos.x}:${newPos.y}:${time}`);
   // 更新当前步骤map和array
-  currentStepMap[userId] = `${movePos.x}:${movePos.y}:${time}`;
-  currentStep.push({ playerId: userId, x: movePos.x, y: movePos.y, time })
+  currentStepMap[userId] = `${newPos.x}:${newPos.y}:${time}`;
+  currentStep.push({ playerId: userId, x: newPos.x, y: newPos.y, time })
   // 判断这一步是不是所有在线玩家都走好了
   const playersMap = await redis.hgetall(`game_room:${gameRoomId}:players`); // 玩家在线情况
   const losingPlayers = await redis.smembers(`game_room:${gameRoomId}:losingPlayers`); // 已经失败的用户
@@ -681,22 +681,30 @@ async function handleVoteRestart(socket, { vote }) {
       await socket.to(gameRoomId).emit('vote restart call')
     }
     const playersOnlineMap = await redis.hgetall(`game_room:${gameRoomId}:players`); // 从缓存内查询房间内玩家在线情况
-    const onlinePlayersCount = Object.keys(playersOnlineMap).reduce((result, playerId) => {
+    const onlinePlayers = Object.keys(playersOnlineMap).reduce((result, playerId) => {
       if (playersOnlineMap[playerId]) {
-        result++;
+        result.push(playerId);
       }
       return result;
-    }, 0)
+    }, [])
     // 假如在线玩家数和投票数一样多，投票成功
-    if (voteRestartPlayers.length === onlinePlayersCount) {
+    if (voteRestartPlayers.length === onlinePlayers.length) {
       await redis.unlink(`game_room:${gameRoomId}:voteRestartPlayers`)
       const gameType = await redis.get(`game_room:${gameRoomId}:gameType`);
       const { boardGrids } = get_game_info(gameType)
+      let currentStepNum = 1;
       await redis.set(`game_room:${gameRoomId}:boardGrids`, JSON.stringify(boardGrids));
-      await redis.set(`game_room:${gameRoomId}:currentStepNum`, 1);
       await redis.unlink(`game_room:${gameRoomId}:currentStep`);
       await redis.unlink(`game_room:${gameRoomId}:losingPlayers`);
       await redis.unlink(`game_room:${gameRoomId}:voteNextStepPlayers`);
+      if(gameType[2] === 'g') { // 自定义游戏
+        currentStepNum = 0;
+        const customGameMaster = onlinePlayers[0]
+        await redis.set(`game_room:${gameRoomId}:customGameMaster`, customGameMaster) // 自定义房间的主人
+        await io.to(gameRoomId).emit('custom game master', { customGameMaster });
+      }
+      await redis.set(`game_room:${gameRoomId}:currentStepNum`, currentStepNum);
+
       const underlinePlayers = Object.keys(playersOnlineMap).reduce((result, playerId) => {
         if (!playersOnlineMap[playerId]) {
           result.push(playerId);
@@ -707,7 +715,7 @@ async function handleVoteRestart(socket, { vote }) {
         await redis.hdel(`game_room:${gameRoomId}:players`, ...underlinePlayers);
       }
       await io.to(gameRoomId).emit('vote restart success'); // 重开游戏成功
-      await io.to(gameRoomId).emit('sync board', { currentStepNum: 1, boardGrids }); // 给当前房间玩家发送棋盘状态
+      await io.to(gameRoomId).emit('sync board', { currentStepNum, boardGrids }); // 给当前房间玩家发送棋盘状态
       const playersStatusMap = await get_players_status(gameRoomId); // 玩家状态
       await io.to(gameRoomId).emit('sync players status', { playersStatusMap }); // 给当前玩家发送其他玩家在线情况
 
